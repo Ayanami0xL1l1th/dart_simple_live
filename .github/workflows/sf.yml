@@ -1,0 +1,99 @@
+name: Auto Sync Fork
+
+on:
+  schedule:
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      # =========================
+      # master 分支：快速检查
+      # =========================
+      - name: Quick check master
+        id: check_master
+        run: |
+          git clone --depth 1 https://github.com/${{ github.repository }}.git repo_master
+          cd repo_master
+
+          UPSTREAM_HASH=$(git ls-remote https://github.com/xiaoyaocz/dart_simple_live.git refs/heads/master | cut -f1)
+          LOCAL_HASH=$(git rev-parse HEAD)
+
+          if [ "$UPSTREAM_HASH" != "$LOCAL_HASH" ]; then
+            echo "need_sync=true" >> $GITHUB_OUTPUT
+          else
+            echo "need_sync=false" >> $GITHUB_OUTPUT
+          fi
+
+      # =========================
+      # dev 分支：快速检查
+      # =========================
+      - name: Quick check dev
+        id: check_dev
+        run: |
+          git clone --depth 1 --branch dev https://github.com/${{ github.repository }}.git repo_dev
+          cd repo_dev
+
+          UPSTREAM_HASH=$(git ls-remote https://github.com/xiaoyaocz/dart_simple_live.git refs/heads/dev | cut -f1)
+          LOCAL_HASH=$(git rev-parse HEAD)
+
+          if [ "$UPSTREAM_HASH" != "$LOCAL_HASH" ]; then
+            echo "need_sync=true" >> $GITHUB_OUTPUT
+          else
+            echo "need_sync=false" >> $GITHUB_OUTPUT
+          fi
+
+      # =========================
+      # 同步 master 分支
+      # =========================
+      - name: Sync master branch
+        if: steps.check_master.outputs.need_sync == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 50
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge upstream master
+        if: steps.check_master.outputs.need_sync == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream https://github.com/xiaoyaocz/dart_simple_live.git
+          git fetch upstream master
+          git merge upstream/master --no-edit
+          git push origin master
+
+      # =========================
+      # 同步 dev 分支
+      # =========================
+      - name: Sync dev branch
+        if: steps.check_dev.outputs.need_sync == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 50
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge upstream dev
+        if: steps.check_dev.outputs.need_sync == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream https://github.com/xiaoyaocz/dart_simple_live.git
+          git fetch upstream dev
+          git merge upstream/dev --no-edit
+          git push origin dev
+
+      # =========================
+      # 无需同步提示
+      # =========================
+      - name: Done
+        if: |
+          steps.check_master.outputs.need_sync == 'false' &&
+          steps.check_dev.outputs.need_sync == 'false'
+        run: echo "✅ master 与 dev 均为最新，无需同步"
